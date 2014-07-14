@@ -1,0 +1,13 @@
+function j = LMginput(annotation, x, y)
+%
+% given an annotation and pixel coordinates (x,y), it returns the indices
+% to the polygons that contain that pixel
+
+if isfield(annotation, 'object')
+    Nobjects = length(annotation.object);
+    
+    for n = 1:Nobjects
+        [X,Y,t] = getLMpolygon(annotation.object(n).polygon);
+        
+    end
+end

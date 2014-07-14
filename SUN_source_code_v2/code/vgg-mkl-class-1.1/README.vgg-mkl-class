@@ -1,0 +1,66 @@
+                            VGG MKL Class
+          A. Vedaldi   V. Gulshan   M. Varma   A. Zisserman
+
+OVERVIEW
+
+This code implements an MKL image classifier similar to the one
+described in:
+
+M. Varma and D. Ray. Learning the discriminative power-invariance
+trade-off. In Proceedings of the IEEE International Conference on
+Computer Vision, Rio de Janeiro, Brazil, October 2007.
+
+Please refer to http://www.robots.ox.ac.uk/~vgg/software/MKL/ for
+further instructions.
+
+CHANGES
+
+Version 1.1
+        Added experiments comparing different feature descriptors.
+        Improved sharing of common data among different experiments.
+        Improved the parameters of the PHOW feature descriptor.
+        Updated bundled MKL code to a more recent version.
+        Improved license notices.
+
+Version 1.0
+        Initial release.
+
+ACKNOWLEDGMENTS
+
+We would like to thank Alexander Berg for providing permission to
+distribute his geometric blur code.
+
+LICENSE
+
+All code included in the VGG MKL Class package is Copyright (C)
+2008-09 by Andrea Vedaldi, with the exception of a number of bundled
+third party software packages listed below.
+
+VGG MKL Class is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program as the file COPYING; if not, please see
+http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt.
+
+This code packages bundles the following third party code
+packages. Please refer to the relative copyright notices and lincense
+agreements.
+
+mkl/GMKL
+        http://research.microsoft.com/en-us/um/people/manik/code/GMKL/download.html
+
+mkl/libsmv
+        http://www.csie.ntu.edu.tw/~cjlin/libsvm/
+
+features/gb
+        http://www.cs.berkeley.edu/~aberg/
+
+features/vggSsim
+        http://www.robots.ox.ac.uk/~vgg/software/SelfSimilarity/

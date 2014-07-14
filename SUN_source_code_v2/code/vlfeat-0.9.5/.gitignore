@@ -1,0 +1,41 @@
+# Mac OS Finder Poop
+.DS_Store
+
+# MEX files
+*.mexglx
+*.mexmac
+*.mexmaci
+*.mexa64
+
+# Python complied files
+*.pyc
+
+# Other generated files and directories
+VERSION
+docsrc/version.html
+bin
+results
+doc
+build
+toolbox/mexw32
+toolbox/mexmaci
+toolbox/mexmac
+toolbox/mexglx
+toolbox/mexa64
+toolbox/mexw64
+toolbox/noprefix
+
+vlfeat.xcodeproj/*.mode1v3
+vlfeat.xcodeproj/*.pbxuser
+
+# Emacs backups
+*~
+
+# Vim swap files
+.*.swp
+
+# Wiki pages
+*.wiki
+wiki/.mediawiki.errors
+wiki/.mediawiki_cookies.dat
+
