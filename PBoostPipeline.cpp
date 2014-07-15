@@ -1,5 +1,7 @@
 #include "PBoostPipeline.hpp"
 #define SHOWFEED 1
+#define FEATURE_THRESH 50
+#define LEARNER_THRESH 200
 
 void EigenToMat(Eigen::MatrixXf& e, cv::Mat& m){
 	e.transposeInPlace();
@@ -495,77 +497,216 @@ void serialPipelineKinect(int treeHeight, int features, int coresetSampleRate, f
 	device.stopDepth();
 }
 
-void thread_computeCoreset(Eigen::MatrixXf newPoints, Eigen::MatrixXf newLabels, std::vector<Eigen::MatrixXf>& CoresetList, int treeHeight){
-	// This function removes coresetSampleRate number of points from the point matrix and computes their coreset.
-	// It then appends this to the existing coreset list.
+class threadPipeline{
+public:	
+	boost::mutex coresetmtx_, featuremtx_, classifiermtx_, framemtx_;
+	bool train;
+	bool canComputeCoreset;
+	std::vector<Eigen::MatrixXf> CoresetsList;
+	std::vector<Eigen::MatrixXf> frames;
+	std::vector<int> labels;
+	std::vector<std::vector<double> > features;
+	std::vector<int> vlabels;
+	PModel model;
+	int treeHeight;
+	int featurescode;
+	int coresetSampleRate;
 
-	std::vector<int> splits;
-	splits.push_back(0);
-	//Adding index zero (for the first split).
+	int classID;
 
-	int old_label=newLabels.at(0,0);
-	for(int i=1;i<newLabels.rows();i++){
-		int label = newLabels.at(i,0);
-		if(label!=old_label) splits.push_back(i);
-		old_label = label;
+	threadPipeline(float img_x, float img_y, int c){
+		train=true;
+		classID=0;
+		coresetSampleRate=c;
+		canComputeCoreset=true;
 	}
-	splits.push_back(newLabels.rows()-1);
-	//Adding index n (for the last split).
 
-	for(int i=1;i<splits.size();i++){
-		int label = newLabels.at(splits.at(i-1));
-		Eigen::MatrixXf frames = newPoints.block(splits.at(i-1),0,splits.at(i)-splits.at(i-1),newPoints.cols());
-		Eigen::MatrixXf cframes = pComputeCoresetTree(frames, treeHeight, 1);
-		//Using RedSVD for SVD in coreset computation.
-		while(CoresetList.size()<label+1) CoresetList.push_back(Eigen::Zeros(0,frames.cols()));
-		//If the class coreset is not present, add it.
-		CoresetList.at(label).conservativeResize(CoresetList.at(label).rows()+frames.size(),frames.cols());
-		CoresetList.at(label).block(CoresetList.rows()-frames.rows(),0,frames.rows(),frames.cols()) = frames;
-		//Appending new coresets to existing coreset list.
+	void thread_computeCoreset(){
+		// This function removes coresetSampleRate number of points from the point matrix and computes their coreset.
+		// It then appends this to the existing coreset list.
+		framemtx_.lock();
+
+		Eigen::MatrixXf newPoints, newLabels;
+		newPoints.resize(coresetSampleRate,frames.at(0).cols());
+		newLabels.resize(coresetSampleRate,1);
+		for(int i=0;i<coresetSampleRate;i++){
+			newPoints.row(i) = frames.at(i);
+			newLabels(i,0) = labels.at(i);
+		} 
+		frames.erase(frames.begin(),frames.begin()+coresetSampleRate);
+		labels.erase(labels.begin(),labels.begin()+coresetSampleRate);
+		framemtx_.unlock();
+		canComputeCoreset=true;
+		//Cropping out the top part of the matrix and resizing it.
+
+		std::vector<int> splits;
+		splits.push_back(0);
+		//Adding index zero (for the first split).
+
+		int old_label=newLabels(0,0);
+		for(int i=1;i<newLabels.rows();i++){
+			int label = newLabels(i,0);
+			if(label!=old_label) splits.push_back(i);
+			old_label = label;
+		}
+		splits.push_back(newLabels.rows()-1);
+		cout<<newLabels.rows()<<" "<<newPoints.rows()<<endl;
+		//Adding index n (for the last split).
+		for(int i=1;i<splits.size();i++){
+			int label = newLabels(splits.at(i-1),0);
+			Eigen::MatrixXf lframes = newPoints.block(splits.at(i-1),0,splits.at(i)-splits.at(i-1),newPoints.cols());
+			Eigen::MatrixXf cframes = pComputeCoresetTree(lframes, treeHeight, 1);
+			//Using RedSVD for SVD in coreset computation.
+			coresetmtx_.lock();
+			while(CoresetsList.size()<label+1) CoresetsList.push_back(MatrixXf::Zero(0,lframes.cols()));
+			//If the class coreset is not present, add it.
+			CoresetsList.at(label).conservativeResize(CoresetsList.at(label).rows()+cframes.rows(),lframes.cols());
+			CoresetsList.at(label).block(CoresetsList.at(label).rows()-cframes.rows(),0,cframes.rows(),cframes.cols()) = cframes;
+			coresetmtx_.unlock();	
+			//Appending new coresets to existing coreset list.
+		}	
+		std::cout<<"Coreset computation completed, rejoining main."<<std::endl;
 	}
-	this.detach();
-}
 
-void threadedPipelineKinect(int treeHeight, int features, int coresetSampleRate, float ratio){
+	void thread_computeFeatures(Eigen::MatrixXf prefeat, int this_label){
+		//This function spawns a thread which computes the features for every set of coresets (points).
+		cv::Mat prefeatmat;
+		EigenToMat(prefeat,prefeatmat);
+		std::vector<std::vector<double> > t;
+		getFeatures(featurescode, prefeatmat, t);
+		featuremtx_.lock();
+		for(int i=0;i<t.size();i++){
+			vlabels.push_back(this_label);
+			features.push_back(t.at(i));
+		}
+		featuremtx_.unlock();
+		std::cout<<"Features computation completed, rejoining main."<<std::endl;
+	}
+
+	void thread_computeClassifier(int type){
+		//This function spawns a thread which will learn a classifier.
+		classifiermtx_.lock();
+		model = PTrain(type,features,vlabels);
+		classifiermtx_.unlock();
+		std::cout<<"Classifier updated, rejoining main."<<std::endl;
+	}
+
+	void thread_addFrame(Eigen::MatrixXf frame_eigen){
+		    frame_eigen.resize(1,frame_eigen.rows()*frame_eigen.cols());
+		    framemtx_.lock();
+		    frames.push_back(frame_eigen);
+		    labels.push_back(classID);
+       		framemtx_.unlock();
+       		//std::cout<<"Frame added with mean value "<<frame_eigen.mean()<<std::endl;
+	}
+
+	void getKeyStatus(bool isBreak){
+		int keyID = cv::waitKey(30);
+		switch (keyID) {
+			case 32:
+				classID++;
+				break;
+			case 27:
+				isBreak=true;
+				break;
+		}
+    }
+};
+
+void threadedPipelineKinect(int treeHeight, int featurescode, int coresetSampleRate, float ratio){
 	cv::Mat depthMat(Size(640,480), CV_16UC1);
-	cv::Mat depthf(Size(640,480), CV_8UC1);
+	cv::Mat rgbMat(Size(640,480), CV_16UC3);
 
 	Freenect::Freenect freenect;
 	MyFreenectDevice& device = freenect.createDevice<MyFreenectDevice>(0);
-
-	bool train(true),isBreak(false),idChange(false);
-	std::vector<Eigen::MatrixXf> CoresetsList;
-	Eigen::MatrixXf frames;
-	Eigen::MatrixXf labels;
-
-	int classID(0);
-
-	boost::thread_group threadgroup;
+	bool isBreak(false);
 
 
+	#ifdef SHOWFEED
+		namedWindow("rgb",CV_WINDOW_AUTOSIZE);
+		namedWindow("depth",CV_WINDOW_AUTOSIZE);
+	#endif
+	
+	device.startVideo();
+	device.startDepth();
+
+	float img_x = 480*ratio;
+	float img_y = 640*ratio;
+
+	threadPipeline T(img_x,img_y,coresetSampleRate);
+	T.treeHeight=treeHeight;
+	T.featurescode=featurescode;
+
+	for(int i=0;i<10;i++){
+		device.getVideo(rgbMat);
+		device.getDepth(depthMat);
+		//Warmup
+	}
+
+	clock_t start;
 	while(true){
-		getKeyStatus(classID,isBreak,idChange, train);
-        if(idChange){
-        	idChange=false;
-        	classID++;
-        }
+		start=clock();
+		T.getKeyStatus(isBreak);
+
         if(isBreak) break;
         //We get the correct mode from the user before training/testing.
 
-		if(train){//select if training mode is set.
+		if(T.train){//select if training mode is set.
+			//Normal addition of image (and displaying it (?))
 
-			if(frames.size()>coresetSampleRate){//If there are more images than the sampling rate (sampling required).
-				Eigen::MatrixXf newPoints = frames.block(0,0,coresetSampleRate,frames.cols());
-				Eigen::MatrixXf newLabels = labels.block(0,0,coresetSampleRate,labels.cols());
-				//Selecting the top sampleRate #frames.
-				frames = frames.block(coresetSampleRate,0,frames.rows()-coresetSampleRate,frames.cols());
-				labels = labels.block(coresetSampleRate,0,labels.rows()-coresetSampleRate,labels.cols());
-				//Cropping out the top part of the matrix and resizing it.
-
-				threadgroup.create_thread(boost::bind(&thread_computeCoreset, newPoints, newLabels, CoresetsList, treeHeight));
+			if(T.frames.size()>coresetSampleRate & T.canComputeCoreset){//If there are more images than the sampling rate (sampling required).
+				T.canComputeCoreset=false;
+				boost::thread coresetThread(boost::bind(&threadPipeline::thread_computeCoreset, &T));
+				coresetThread.detach();
 			}
 
+			for(int i=0;i<T.CoresetsList.size();i++){
+				//If any of the classes have at least FEATURE_THRESH #points, then we will calculate their features.
+				if(T.CoresetsList.at(i).rows()>FEATURE_THRESH){
+					Eigen::MatrixXf prefeat = T.CoresetsList.at(i).block(T.CoresetsList.at(i).rows()-FEATURE_THRESH,0,FEATURE_THRESH,T.CoresetsList.at(i).cols());
+					T.CoresetsList.at(i).conservativeResize(T.CoresetsList.at(i).rows()-FEATURE_THRESH,T.CoresetsList.at(i).cols());
+					//Extracting the coresets and resizing the original matrix.
 
+					boost::thread featuresThread(boost::bind(&threadPipeline::thread_computeFeatures,&T, prefeat, i));
+					featuresThread.detach();
+				}
+			}
+
+			if(!(T.features.size()%LEARNER_THRESH)&T.features.size()>0){
+				//If significant number of features have been accumulated, we will train the learner.
+				//No points will be removed however.
+				boost::thread classifierThread(boost::bind(&threadPipeline::thread_computeClassifier,&T, 0));
+			}
+			device.getVideo(rgbMat);
+			device.getDepth(depthMat);
+
+			cv::Mat rgb_float,rgbf_resized,rgbf_normalized;
+			rgbMat.convertTo(rgb_float,CV_32FC3);
+			cv::resize(rgb_float,rgbf_resized,Size(img_y,img_x),0,0,INTER_LINEAR);
+        	cv::normalize(rgbf_resized,rgbf_normalized,0,1,NORM_MINMAX,CV_32FC3);
+
+			cv::Mat depth_float,depthf_resized,depthf_normalized;
+			depthMat.convertTo(depth_float,CV_32FC1);
+			cv::resize(depth_float,depthf_resized,Size(img_y,img_x),0,0,INTER_LINEAR);
+        	cv::normalize(depthf_resized,depthf_normalized,0,1,NORM_MINMAX,CV_32FC3);
+
+
+        	#ifdef SHOWFEED
+        		cv::Mat feed_image;
+        		rgbf_normalized.copyTo(feed_image);
+        		ostringstream classNum;
+        		classNum << T.classID;
+        		std::string camera_text = "Learning class number: " + classNum.str();
+        		cv::putText(feed_image, camera_text, cvPoint(10,10), FONT_HERSHEY_COMPLEX_SMALL, 0.4, cvScalar(200,200,250));
+        		cv::imshow("rgb",feed_image);
+        		cv::imshow("depth",depthf_normalized);
+        	#endif
+        
+        	Eigen::MatrixXf frame_eigen;
+       		convertMatToEigen_ImageDepth(rgbf_normalized,depthf_normalized, frame_eigen);
+       		boost::thread frameThread(boost::bind(&threadPipeline::thread_addFrame,&T,frame_eigen));
+       		frameThread.detach();
+       		//<< (std::clock()-start)/(double)CLOCKS_PER_SEC<<endl;
 		}
 		else{
 

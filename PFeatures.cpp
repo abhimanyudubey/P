@@ -191,10 +191,10 @@ void normalizeVectorArray(std::vector<std::vector<char> >& v){
 void depthSegmentation_Integral(cv::Mat src_rgb, cv::Mat src_depth, cv::Mat output, float thresh, int bins){
     // For this function both the rgb source (3-channel) and the depth data (1-channel)
     // must be of the same dimensionality.
-    std::vector<std::vector<float> > integrals = getGridFeatures(src_depth, bins, bins);
-    //Square bin formation.
-    
-    normalizeVectorArray(integrals);
+    std::vector<double> integrals = getGridFeatures(src_depth, bins, bins);
+    //Square bin formation
 
-    
+    //normalizeVectorArray(integrals);
+
+
 }

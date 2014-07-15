@@ -8,7 +8,7 @@ int main(int argc,char* argv[]){
 		serialPipelineKinect(atoi(argv[2]),atoi(argv[3]),atoi(argv[4]),atof(argv[5]));
 		break;
 		case 1:
-		serialPipelineCamera(atoi(argv[2]),atoi(argv[3]),atoi(argv[4]),atof(argv[5]));
+		threadedPipelineKinect(atoi(argv[2]),atoi(argv[3]),atoi(argv[4]),atof(argv[5]));
 		break;
 	}
 	return 0;

@@ -124,7 +124,7 @@ MatrixXf pComputeCoresetTree(MatrixXf input, int treeHeight, int svdType, int nu
 			Coreset temp;
 			temp.setPoints(numCoresetPoints);
 			if(i==0) temp.setMatrix(input.block(j*numCoresetPoints,0,numCoresetPoints,input.cols()));
-			else temp.setMatrix(splitInput.at(j));	
+			else temp.setMatrix(splitInput.at(j));
 			output.at(j) = temp;
 			output.at(j).computeCoreset(svdType);
 			//Coreset computed.
